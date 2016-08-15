@@ -1,0 +1,22 @@
+# *
+*.swp
+.DS_STORE
+
+
+# Java
+*.class
+*.jar
+*.war
+hs_err_pid*
+build/
+
+
+# IDEA
+/.idea
+
+
+# Gradle
+/.gradle
+gradle-app.setting
+!gradle-wrapper.jar
+.gradletasknamecache

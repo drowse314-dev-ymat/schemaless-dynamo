@@ -5,23 +5,22 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
 
-import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBQueryExpression;
-import com.amazonaws.services.dynamodbv2.datamodeling.IDynamoDBMapper;
-import com.amazonaws.services.dynamodbv2.datamodeling.PaginatedList;
-import com.amazonaws.services.dynamodbv2.model.AttributeValue;
+import com.amazonaws.services.dynamodbv2.document.DynamoDB;
+import com.amazonaws.services.dynamodbv2.document.Item;
+import com.amazonaws.services.dynamodbv2.document.Table;
+import com.amazonaws.services.dynamodbv2.document.spec.GetItemSpec;
 import com.amazonaws.services.lambda.runtime.Context;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.util.StringUtils;
 
 
 @SpringBootApplication
@@ -51,9 +50,15 @@ public class Main {
 
         save(model);
 
+        String queryHashKey = StringUtils.isEmpty(model.getQueryHashKey()) ?
+                model.getHashKey() : model.getQueryHashKey();
+        Long queryTimestamp = StringUtils.isEmpty(model.getQueryTimestamp()) ?
+                model.getTimestamp() : model.getQueryTimestamp();
+
         String response =
-                load(model.getHashKey(), model.getTimestamp())
-                        .map(loaded -> gson.toJson(loaded).toUpperCase())
+                load(queryHashKey, queryTimestamp)
+                        // needs Type param, actually
+                        .map(loaded -> gson.toJson(loaded, AnonymNestedModel.class).toUpperCase())
                         .orElse("not found");
 
         try (OutputStreamWriter writer = new OutputStreamWriter(outputStream, "UTF-8")) {
@@ -62,33 +67,34 @@ public class Main {
     }
 
     private void save(AnonymNestedModel model) {
-        IDynamoDBMapper dynamoDBMapper = initializeApplicationContext().getBean(IDynamoDBMapper.class);
-        dynamoDBMapper.save(model);
+        ConfigurableApplicationContext springContext = initializeApplicationContext();
+        Table streamdata = springContext.getBean(DynamoDB.class).getTable("streamdata");
+        Gson gson = springContext.getBean(Gson.class);
+
+        streamdata.putItem(
+                new Item()
+                    .withPrimaryKey("hashKey", model.getHashKey())
+                    .withLong("timestamp", model.getTimestamp())
+                    .withJSON("data", gson.toJson(model.getData())));
     }
 
     private Optional<AnonymNestedModel> load(String hashKey, Long timestamp) {
-        IDynamoDBMapper dynamoDBMapper = initializeApplicationContext().getBean(IDynamoDBMapper.class);
+        ConfigurableApplicationContext springContext = initializeApplicationContext();
+        Table streamdata = springContext.getBean(DynamoDB.class).getTable("streamdata");
+        Gson gson = springContext.getBean(Gson.class);
 
-        Map<String, String> aliases = new HashMap<String, String>() {
-            { put("#timestamp", "timestamp"); }
-        };
-        Map<String, AttributeValue> params = new HashMap<String, AttributeValue>() {
-            {
-                put(":hashKey", new AttributeValue().withS(hashKey));
-                put(":timestamp", new AttributeValue().withN(timestamp.toString()));
-            }
-        };
+        Item item = streamdata.getItem(
+                new GetItemSpec()
+                    .withPrimaryKey("hashKey", hashKey, "timestamp", timestamp));
 
-        PaginatedList<AnonymNestedModel> models = dynamoDBMapper.query(
-                AnonymNestedModel.class,
-                new DynamoDBQueryExpression<AnonymNestedModel>()
-                        .withExpressionAttributeNames(aliases)
-                        .withKeyConditionExpression(
-                                "hashKey = :hashKey and #timestamp = :timestamp")
-                        .withExpressionAttributeValues(params));
+        if (item == null) { return Optional.empty(); }
 
-        return models.isEmpty() ?
-                Optional.empty() :
-                Optional.of(models.get(0));
+        AnonymNestedModel model = new AnonymNestedModel() {{
+            setHashKey(item.getString("hashKey"));
+            setTimestamp(item.getLong("timestamp"));
+            setData(gson.fromJson(item.getJSON("data"), Object.class));
+        }};
+
+        return Optional.of(model);
     }
 }

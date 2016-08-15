@@ -5,6 +5,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBHashKey;
+import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBIgnore;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBRangeKey;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTypeConverted;
@@ -28,5 +29,13 @@ public class AnonymNestedModel {
     @Getter
     @Setter
     private Object data;
+
+    @DynamoDBIgnore
+    @Getter
+    private String queryHashKey;
+
+    @DynamoDBIgnore
+    @Getter
+    private Long queryTimestamp;
 
 }
